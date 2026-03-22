@@ -185,10 +185,30 @@ void Game::FixedUpdate(float fixedDt) {
 
 void Game::Draw() {
     BeginDrawing();
-    
+
     ClearBackground({20, 20, 35});
-    
-    DrawGameplay();
+
+    switch (state) {
+        case GameState::MENU:
+            DrawMenu();
+            break;
+        case GameState::PLAYING:
+            DrawGameplay();
+            break;
+        case GameState::PAUSED:
+            DrawGameplay();
+            DrawPauseMenu();
+            break;
+        case GameState::LEVEL_COMPLETE:
+            DrawLevelComplete();
+            break;
+        case GameState::GAME_OVER:
+            DrawGameOver();
+            break;
+        case GameState::VICTORY:
+            DrawVictory();
+            break;
+    }
 
     // Draw FPS if enabled
     if (config.showFPS) {
