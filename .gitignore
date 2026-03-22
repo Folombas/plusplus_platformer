@@ -1,0 +1,44 @@
+# Build outputs
+bin/
+obj/
+build/
+*.exe
+*.pdb
+*.ilk
+*.exp
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Compiler
+*.o
+*.obj
+*.lib
+*.dll
+*.so
+
+# Audio placeholders (keep directory, ignore empty files)
+assets/audio/*.wav
+assets/audio/*.ogg
+!assets/audio/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ZIP archives (already extracted)
+*.zip
+
+# Logs
+*.log
