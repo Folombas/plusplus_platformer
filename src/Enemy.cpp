@@ -1,404 +1,345 @@
 #include "Enemy.h"
-#include "TileMap.h"
-#include "Player.h"
-#include "AudioManager.h"
-
-#ifdef _WIN32
-#undef CloseWindow
-#undef ShowCursor
-#endif
+#include "Texture.h"
+#include "Renderer.h"
 
 Enemy::Enemy()
-    : position{0, 0}
-    , velocity{0, 0}
-    , patrolLeft{0, 0}
-    , patrolRight{0, 0}
-    , type(EnemyType::GROUND)
-    , state(EnemyState::PATROL)
-    , active(false)
-    , health(1)
-    , maxHealth(1)
-    , damage(1)
-    , scoreValue(100)
-    , detectionRange(200)
-    , attackRange(40)
-    , attackCooldown(1.0f)
-    , attackTimer(0)
-    , facingRight(true)
-    , moveSpeed(ENEMY_SPEED)
-    , jumpForce(-400)
-    , grounded(false)
-    , currentFrame(0)
-    , frameTimer(0)
-    , frameWidth(32)
-    , frameHeight(32)
-    , currentState("idle")
-    , hurtFlashTimer(0)
-    , deathTimer(0)
-    , hurtColor(WHITE)
-{
-}
+    : m_type(EnemyType::Slime)
+    , m_state(EnemyState::Idle)
+    , m_bounds{0, 0, 40, 30}
+    , m_velocity(0, 0)
+    , m_health(1)
+    , m_maxHealth(1)
+    , m_scoreValue(100)
+    , m_facingRight(true)
+    , m_moveSpeed(50.0f)
+    , m_patrolStart(0)
+    , m_patrolEnd(200)
+    , m_deathTimer(0.0f)
+    , m_currentAnim(nullptr)
+{}
 
-Enemy::Enemy(Vector2 pos, EnemyType enemyType)
+Enemy::Enemy(EnemyType type, float x, float y)
     : Enemy()
 {
-    position = pos;
-    type = enemyType;
-    active = true;
+    m_type = type;
+    m_bounds.x = x;
+    m_bounds.y = y;
     
-    // Configure based on type
     switch (type) {
-        case EnemyType::GROUND:
-            health = 1;
-            maxHealth = 1;
-            moveSpeed = 80;
-            scoreValue = 100;
+        case EnemyType::Slime:
+            m_bounds.width = 40;
+            m_bounds.height = 30;
+            m_moveSpeed = 40.0f;
+            m_scoreValue = 100;
             break;
-        case EnemyType::FLYING:
-            health = 1;
-            maxHealth = 1;
-            moveSpeed = 100;
-            jumpForce = 0;
-            scoreValue = 150;
+        case EnemyType::Snail:
+            m_bounds.width = 50;
+            m_bounds.height = 35;
+            m_moveSpeed = 25.0f;
+            m_scoreValue = 150;
             break;
-        case EnemyType::JUMPING:
-            health = 1;
-            maxHealth = 1;
-            moveSpeed = 60;
-            jumpForce = -500;
-            scoreValue = 200;
+        case EnemyType::Bat:
+            m_bounds.width = 35;
+            m_bounds.height = 25;
+            m_moveSpeed = 80.0f;
+            m_scoreValue = 200;
             break;
-        case EnemyType::BOSS:
-            health = 10;
-            maxHealth = 10;
-            moveSpeed = 50;
-            detectionRange = 400;
-            scoreValue = 1000;
+        case EnemyType::Fish:
+            m_bounds.width = 40;
+            m_bounds.height = 25;
+            m_moveSpeed = 60.0f;
+            m_scoreValue = 150;
             break;
-    }
-    
-    LoadSprites();
-}
-
-Enemy::~Enemy() {
-    if (spritesheet.width != 0) {
-        UnloadTexture(spritesheet);
-    }
-}
-
-void Enemy::LoadSprites() {
-    std::string path;
-    switch (type) {
-        case EnemyType::GROUND:
-            path = "assets/sprites/platformer/Base pack/Enemies/slimeWalk.png";
-            break;
-        case EnemyType::FLYING:
-            path = "assets/sprites/platformer/Base pack/Enemies/flyWalk.png";
-            break;
-        case EnemyType::JUMPING:
-            path = "assets/sprites/platformer/Base pack/Enemies/batFly.png";
-            break;
-        case EnemyType::BOSS:
-            path = "assets/sprites/platformer/Extra animations and enemies/big_slime.png";
+        case EnemyType::Bee:
+            m_bounds.width = 30;
+            m_bounds.height = 30;
+            m_moveSpeed = 70.0f;
+            m_scoreValue = 200;
             break;
     }
     
-    Image img = LoadImage(path.c_str());
-    if (img.data != nullptr) {
-        spritesheet = LoadTextureFromImage(img);
-        UnloadImage(img);
+    m_patrolEnd = x + 150.0f;
+    m_patrolStart = x - 150.0f;
+}
+
+void Enemy::loadAnimations() {
+    auto& texMgr = TextureManager::getInstance();
+    auto& animMgr = AnimationManager::getInstance();
+    
+    std::string prefix;
+    std::string filePrefix;
+    switch (m_type) {
+        case EnemyType::Slime: prefix = "slime"; filePrefix = "slime"; break;
+        case EnemyType::Snail: prefix = "snail"; filePrefix = "snail"; break;
+        case EnemyType::Bat: prefix = "bat"; filePrefix = "fly"; break; // Используем fly текстуры для летучих врагов
+        case EnemyType::Fish: prefix = "fish"; filePrefix = "fish"; break;
+        case EnemyType::Bee: prefix = "bee"; filePrefix = "fly"; break;
+    }
+    
+    // Загружаем текстуры из Base pack/Enemies
+    std::string basePath = "assets/Base pack/Enemies/";
+    
+    // Ходьба/полет
+    std::string walkPath1 = basePath + filePrefix + "Walk1.png";
+    std::string walkPath2 = basePath + filePrefix + "Walk2.png";
+    
+    int walk1Tex = texMgr.loadTexture(prefix + "_walk1", walkPath1);
+    int walk2Tex = texMgr.loadTexture(prefix + "_walk2", walkPath2);
+    
+    if (walk1Tex >= 0 && walk2Tex >= 0) {
+        Animation walkAnim(prefix + "_walk", 8.0f);
+        walkAnim.addFrame(walk1Tex, 0.125f);
+        walkAnim.addFrame(walk2Tex, 0.125f);
+        animMgr.addAnimation(prefix + "_walk", std::move(walkAnim));
+    }
+    
+    // Смерть
+    std::string deadPath = basePath + filePrefix + "Dead.png";
+    int deadTex = texMgr.loadTexture(prefix + "_dead", deadPath);
+    if (deadTex >= 0) {
+        Animation deadAnim(prefix + "_dead", 1.0f);
+        deadAnim.addFrame(deadTex, 0.5f);
+        animMgr.addAnimation(prefix + "_dead", std::move(deadAnim));
+    }
+    
+    // Для летучих мышей и пчел - отдельная анимация полета
+    if (m_type == EnemyType::Bat || m_type == EnemyType::Bee) {
+        std::string flyPath1 = basePath + "flyFly1.png";
+        std::string flyPath2 = basePath + "flyFly2.png";
         
-        frameWidth = spritesheet.width / 8;
-        frameHeight = spritesheet.height;
+        int fly1Tex = texMgr.loadTexture(prefix + "_fly1", flyPath1);
+        int fly2Tex = texMgr.loadTexture(prefix + "_fly2", flyPath2);
+        
+        if (fly1Tex >= 0 && fly2Tex >= 0) {
+            Animation flyAnim(prefix + "_fly", 10.0f);
+            flyAnim.addFrame(fly1Tex, 0.1f);
+            flyAnim.addFrame(fly2Tex, 0.1f);
+            animMgr.addAnimation(prefix + "_fly", std::move(flyAnim));
+        }
+    }
+    
+    // Для рыб - плавание
+    if (m_type == EnemyType::Fish) {
+        std::string swim1Path = basePath + "fishSwim1.png";
+        std::string swim2Path = basePath + "fishSwim2.png";
+        
+        int swim1Tex = texMgr.loadTexture("fish_swim1", swim1Path);
+        int swim2Tex = texMgr.loadTexture("fish_swim2", swim2Path);
+        
+        if (swim1Tex >= 0 && swim2Tex >= 0) {
+            Animation swimAnim("fish_swim", 8.0f);
+            swimAnim.addFrame(swim1Tex, 0.125f);
+            swimAnim.addFrame(swim2Tex, 0.125f);
+            animMgr.addAnimation("fish_swim", std::move(swimAnim));
+        }
+    }
+    
+    m_currentAnim = animMgr.getAnimation(prefix + "_walk");
+    if (!m_currentAnim && m_type == EnemyType::Fish) {
+        m_currentAnim = animMgr.getAnimation("fish_swim");
+    }
+    if (!m_currentAnim && (m_type == EnemyType::Bat || m_type == EnemyType::Bee)) {
+        m_currentAnim = animMgr.getAnimation(prefix + "_fly");
+    }
+}
+
+void Enemy::update(float dt) {
+    if (m_state == EnemyState::Dead) {
+        m_deathTimer -= dt;
+        return;
+    }
+    
+    if (m_state == EnemyState::Hurt) {
+        return;
+    }
+    
+    applyAI(dt);
+    applyPhysics(dt);
+    updateAnimation();
+    
+    if (m_currentAnim) {
+        m_currentAnim->update(dt);
+    }
+}
+
+void Enemy::applyPhysics(float dt) {
+    if (m_type == EnemyType::Bat || m_type == EnemyType::Bee) {
+        // Летающие враги не подвержены гравитации
+        m_bounds.x += m_velocity.x * dt;
+        m_bounds.y += m_velocity.y * dt;
+    } else if (m_type == EnemyType::Fish) {
+        // Рыбы плавают
+        m_bounds.x += m_velocity.x * dt;
+        m_bounds.y += m_velocity.y * dt;
     } else {
-        // Placeholder
-        Color enemyColor = MAGENTA;
-        if (type == EnemyType::FLYING) enemyColor = PURPLE;
-        if (type == EnemyType::BOSS) enemyColor = DARKGREEN;
+        // Наземные враги
+        m_velocity.y += GRAVITY * dt;
+        m_bounds.x += m_velocity.x * dt;
+        m_bounds.y += m_velocity.y * dt;
         
-        Image placeholder = GenImageColor(32, 32, enemyColor);
-        spritesheet = LoadTextureFromImage(placeholder);
-        UnloadImage(placeholder);
-        
-        frameWidth = 32;
-        frameHeight = 32;
-    }
-}
-
-void Enemy::SetPatrolPoints(Vector2 left, Vector2 right) {
-    patrolLeft = left;
-    patrolRight = right;
-}
-
-Rectangle Enemy::GetBounds() const {
-    float size = frameWidth * 0.8f;
-    if (type == EnemyType::BOSS) size *= 2;
-    
-    return {
-        position.x - size / 2,
-        position.y - size / 2,
-        size,
-        type == EnemyType::FLYING ? size * 0.6f : size
-    };
-}
-
-void Enemy::Update(float dt, const TileMap& tileMap, const Player* player) {
-    if (!active || state == EnemyState::DEAD) {
-        if (state == EnemyState::DEAD) {
-            deathTimer -= dt;
-            if (deathTimer <= 0) {
-                active = false;
-            }
+        // Простая проверка земли
+        if (m_bounds.y + m_bounds.height >= 500) {
+            m_bounds.y = 500 - m_bounds.height;
+            m_velocity.y = 0;
         }
-        return;
-    }
-    
-    UpdateAI(dt, player);
-    UpdatePhysics(dt, tileMap);
-    UpdateAnimation(dt);
-    
-    // Update hurt flash
-    if (hurtFlashTimer > 0) {
-        hurtFlashTimer -= dt;
-    }
-    
-    // Update attack cooldown
-    if (attackTimer > 0) {
-        attackTimer -= dt;
     }
 }
 
-void Enemy::UpdateAI(float dt, const Player* player) {
-    if (!player || player->IsDead()) {
-        state = EnemyState::PATROL;
-        return;
-    }
-    
-    float distToPlayer = Vector2Distance(position, player->GetPosition());
-    
-    // State machine
-    switch (state) {
-        case EnemyState::PATROL:
-            if (distToPlayer < detectionRange) {
-                state = EnemyState::CHASE;
+void Enemy::applyAI(float dt) {
+    switch (m_type) {
+        case EnemyType::Slime:
+        case EnemyType::Snail:
+            // Патрулирование
+            if (m_facingRight) {
+                m_velocity.x = m_moveSpeed;
+                if (m_bounds.x > m_patrolEnd) {
+                    m_facingRight = false;
+                }
             } else {
-                // Patrol behavior
-                if (type == EnemyType::GROUND || type == EnemyType::JUMPING) {
-                    if (facingRight && position.x > patrolRight.x) {
-                        facingRight = false;
-                    } else if (!facingRight && position.x < patrolLeft.x) {
-                        facingRight = true;
-                    }
-                    
-                    velocity.x = facingRight ? moveSpeed : -moveSpeed;
-                } else if (type == EnemyType::FLYING) {
-                    // Flying enemies hover in place or move slowly
-                    velocity.x = facingRight ? moveSpeed * 0.5f : -moveSpeed * 0.5f;
-                    
-                    // Bob up and down
-                    velocity.y = sin(GetTime() * 3) * 30;
+                m_velocity.x = -m_moveSpeed;
+                if (m_bounds.x < m_patrolStart) {
+                    m_facingRight = true;
                 }
             }
             break;
             
-        case EnemyState::CHASE:
-            if (distToPlayer > detectionRange * 1.5f) {
-                state = EnemyState::PATROL;
+        case EnemyType::Bat:
+        case EnemyType::Bee:
+            // Летающее патрулирование с синусоидальным движением
+            if (m_facingRight) {
+                m_velocity.x = m_moveSpeed;
+                m_velocity.y = std::sin(glfwGetTime() * 3.0f) * 30.0f;
+                if (m_bounds.x > m_patrolEnd) {
+                    m_facingRight = false;
+                }
             } else {
-                // Chase player
-                if (player->GetPosition().x > position.x) {
-                    facingRight = true;
-                    velocity.x = moveSpeed;
-                } else {
-                    facingRight = false;
-                    velocity.x = -moveSpeed;
-                }
-                
-                // Jumping enemies try to jump at player
-                if (type == EnemyType::JUMPING && grounded && attackTimer <= 0) {
-                    velocity.y = jumpForce;
-                    grounded = false;
-                    attackTimer = 2.0f;
+                m_velocity.x = -m_moveSpeed;
+                m_velocity.y = std::sin(glfwGetTime() * 3.0f) * 30.0f;
+                if (m_bounds.x < m_patrolStart) {
+                    m_facingRight = true;
                 }
             }
             break;
             
-        case EnemyState::HURT:
-            velocity.x = 0;
-            if (hurtFlashTimer <= 0) {
-                state = EnemyState::PATROL;
-            }
-            break;
-            
-        default:
-            break;
-    }
-}
-
-void Enemy::UpdatePhysics(float dt, const TileMap& tileMap) {
-    if (type == EnemyType::FLYING) {
-        // Flying enemies ignore gravity
-        position.x += velocity.x * dt;
-        position.y += velocity.y * dt;
-        return;
-    }
-    
-    // Apply gravity
-    velocity.y += GRAVITY * dt;
-    if (velocity.y > 800) velocity.y = 800;
-    
-    // Apply horizontal movement
-    position.x += velocity.x * dt;
-    
-    // Horizontal collision
-    Rectangle bounds = GetBounds();
-    int startX = static_cast<int>((bounds.x - 5) / tileMap.GetTileSize());
-    int endX = static_cast<int>((bounds.x + bounds.width + 5) / tileMap.GetTileSize());
-    int startY = static_cast<int>((bounds.y - 5) / tileMap.GetTileSize());
-    int endY = static_cast<int>((bounds.y + bounds.height + 5) / tileMap.GetTileSize());
-    
-    for (int y = startY; y <= endY; y++) {
-        for (int x = startX; x <= endX; x++) {
-            if (tileMap.IsTileSolid(x, y)) {
-                Rectangle tileRect = tileMap.GetTileCollision(x, y);
-                if (CheckCollisionRecs(bounds, tileRect)) {
-                    if (velocity.x > 0) {
-                        position.x = tileRect.x - bounds.width / 2 - 0.1f;
-                    } else if (velocity.x < 0) {
-                        position.x = tileRect.x + tileRect.width + bounds.width / 2 + 0.1f;
-                    }
-                    velocity.x = -velocity.x;  // Reverse direction
-                    facingRight = !facingRight;
+        case EnemyType::Fish:
+            // Плавание туда-сюда
+            if (m_facingRight) {
+                m_velocity.x = m_moveSpeed;
+                if (m_bounds.x > m_patrolEnd) {
+                    m_facingRight = false;
+                }
+            } else {
+                m_velocity.x = -m_moveSpeed;
+                if (m_bounds.x < m_patrolStart) {
+                    m_facingRight = true;
                 }
             }
-        }
-    }
-    
-    // Apply vertical movement
-    position.y += velocity.y * dt;
-    bounds = GetBounds();
-    
-    // Vertical collision
-    grounded = false;
-    for (int y = startY; y <= endY; y++) {
-        for (int x = startX; x <= endX; x++) {
-            if (tileMap.IsTileSolid(x, y)) {
-                Rectangle tileRect = tileMap.GetTileCollision(x, y);
-                if (CheckCollisionRecs(bounds, tileRect)) {
-                    if (velocity.y > 0) {
-                        position.y = tileRect.y - bounds.height / 2 - 0.1f;
-                        grounded = true;
-                        velocity.y = 0;
-                    } else if (velocity.y < 0) {
-                        position.y = tileRect.y + tileRect.height + bounds.height / 2 + 0.1f;
-                        velocity.y = 0;
-                    }
-                }
-            }
-        }
+            break;
     }
 }
 
-void Enemy::UpdateAnimation(float dt) {
-    float frameSpeed = 0.15f;
+void Enemy::updateAnimation() {
+    auto& animMgr = AnimationManager::getInstance();
+    std::string prefix;
     
-    frameTimer += dt;
-    if (frameTimer >= frameSpeed) {
-        frameTimer -= frameSpeed;
-        currentFrame = (currentFrame + 1) % 4;
-    }
-}
-
-void Enemy::Draw(const GameCamera2D& camera) {
-    if (!active) return;
-    
-    Color tint = WHITE;
-    
-    if (state == EnemyState::DEAD) {
-        tint = TintAlpha(WHITE, deathTimer / 0.5f);
-    } else if (hurtFlashTimer > 0) {
-        tint = hurtColor;
+    switch (m_type) {
+        case EnemyType::Slime: prefix = "slime"; break;
+        case EnemyType::Snail: prefix = "snail"; break;
+        case EnemyType::Bat: prefix = "bat"; break;
+        case EnemyType::Fish: prefix = "fish"; break;
+        case EnemyType::Bee: prefix = "bee"; break;
     }
     
-    float scale = 1.0f;
-    if (type == EnemyType::BOSS) scale = 2.0f;
-    
-    if (state == EnemyState::DEAD) {
-        // Squashed death animation
-        DrawTexturePro(
-            spritesheet,
-            GetSpriteSource(spritesheet, frameWidth, frameHeight, currentFrame),
-            {
-                position.x - frameWidth * 0.4f * scale,
-                position.y + frameHeight * 0.3f * scale,
-                frameWidth * 0.8f * scale,
-                frameHeight * 0.2f * scale
-            },
-            {frameWidth * 0.4f, frameHeight * 0.1f},
-            facingRight ? 0 : 180,
-            tint
-        );
+    if (m_state == EnemyState::Dead) {
+        m_currentAnim = animMgr.getAnimation(prefix + "_dead");
+    } else if (m_type == EnemyType::Bat || m_type == EnemyType::Bee) {
+        m_currentAnim = animMgr.getAnimation(prefix + "_fly");
+    } else if (m_type == EnemyType::Fish) {
+        m_currentAnim = animMgr.getAnimation("fish_swim");
     } else {
-        DrawTexturePro(
-            spritesheet,
-            GetSpriteSource(spritesheet, frameWidth, frameHeight, currentFrame),
-            {
-                position.x - frameWidth * 0.4f * scale,
-                position.y - frameHeight * 0.4f * scale,
-                frameWidth * 0.8f * scale,
-                frameHeight * 0.8f * scale
-            },
-            {frameWidth * 0.4f, frameHeight * 0.4f},
-            facingRight ? 0 : 180,
-            tint
-        );
+        m_currentAnim = animMgr.getAnimation(prefix + "_walk");
     }
     
-    // Draw health bar for boss
-    if (type == EnemyType::BOSS && health < maxHealth) {
-        float barWidth = 100 * scale;
-        float barHeight = 8;
-        float healthPercent = static_cast<float>(health) / maxHealth;
+    if (m_currentAnim && !m_currentAnim->isPlaying()) {
+        m_currentAnim->play();
+    }
+}
+
+void Enemy::render() {
+    if (m_state == EnemyState::Dead && m_deathTimer <= 0) return;
+    
+    float x = m_bounds.x;
+    float y = m_bounds.y;
+    float w = m_bounds.width;
+    float h = m_bounds.height;
+    
+    glm::vec4 color = m_facingRight ? glm::vec4(1.0f) : glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f);
+    
+    if (m_state == EnemyState::Dead) {
+        color = glm::vec4(1.0f, 1.0f, 1.0f, 0.5f);
+    }
+    
+    if (m_currentAnim) {
+        int texId = m_currentAnim->getCurrentFrameTexture();
+        int srcX, srcY, srcW, srcH;
+        m_currentAnim->getCurrentFrameRect(srcX, srcY, srcW, srcH);
         
-        DrawRectangle(
-            position.x - barWidth / 2,
-            position.y - frameHeight * scale - 20,
-            barWidth,
-            barHeight,
-            BLACK
-        );
-        DrawRectangle(
-            position.x - barWidth / 2,
-            position.y - frameHeight * scale - 20,
-            barWidth * healthPercent,
-            barHeight,
-            RED
-        );
+        if (srcW > 0 && srcH > 0) {
+            Renderer::getInstance().drawSpriteRect(texId, x, y, w, h, srcX, srcY, srcW, srcH, 0.0f, color);
+        } else {
+            Renderer::getInstance().drawSprite(texId, x, y, w, h, 0.0f, color);
+        }
     }
 }
 
-void Enemy::TakeDamage(int damage, Vector2 hitDirection) {
-    if (state == EnemyState::DEAD || state == EnemyState::HURT) return;
+void Enemy::takeDamage(int amount) {
+    if (m_state == EnemyState::Dead) return;
     
-    health -= damage;
-    hurtFlashTimer = 0.2f;
-    hurtColor = RED;
-    
-    // Knockback
-    velocity.x = hitDirection.x * 300;
-    velocity.y = hitDirection.y * 300 - 100;
-    
-    if (health <= 0) {
-        Kill();
+    m_health -= amount;
+    if (m_health <= 0) {
+        kill();
     }
 }
 
-void Enemy::Kill() {
-    if (state == EnemyState::DEAD) return;
+void Enemy::kill() {
+    m_state = EnemyState::Dead;
+    m_deathTimer = 1.0f;
+    m_velocity = glm::vec2(0, 0);
+}
+
+void Enemy::setPosition(float x, float y) {
+    m_bounds.x = x;
+    m_bounds.y = y;
+}
+
+void Enemy::setPatrolRange(float start, float end) {
+    m_patrolStart = start;
+    m_patrolEnd = end;
+}
+
+void Enemy::resolveCollision(const AABB& other) {
+    if (!m_bounds.intersects(other)) return;
     
-    state = EnemyState::DEAD;
-    deathTimer = 0.5f;
-    velocity = {0, 0};
+    float overlapLeft = (m_bounds.x + m_bounds.width) - other.x;
+    float overlapRight = (other.x + other.width) - m_bounds.x;
+    float overlapTop = (m_bounds.y + m_bounds.height) - other.y;
+    float overlapBottom = (other.y + other.height) - m_bounds.y;
     
-    AudioManager::Instance().PlaySound(SoundType::ENEMY_DEATH);
+    float minOverlap = std::min({overlapLeft, overlapRight, overlapTop, overlapBottom});
+    
+    if (minOverlap == overlapTop) {
+        m_bounds.y = other.y - m_bounds.height;
+        m_velocity.y = 0;
+    } else if (minOverlap == overlapBottom) {
+        m_bounds.y = other.y + other.height;
+        m_velocity.y = 0;
+    } else if (minOverlap == overlapLeft) {
+        m_bounds.x = other.x - m_bounds.width;
+        m_velocity.x = 0;
+        m_facingRight = true;
+    } else if (minOverlap == overlapRight) {
+        m_bounds.x = other.x + other.width;
+        m_velocity.x = 0;
+        m_facingRight = false;
+    }
 }

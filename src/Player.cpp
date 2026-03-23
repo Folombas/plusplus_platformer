@@ -1,426 +1,295 @@
 #include "Player.h"
-#include "TileMap.h"
-#include "Camera2D.h"
-#include "AudioManager.h"
-#include <cmath>
+#include "Texture.h"
+#include "Renderer.h"
+#include "Audio.h"
+#include <iostream>
 
-#ifdef _WIN32
-#undef CloseWindow
-#undef ShowCursor
-#endif
+Player::Player()
+    : m_bounds{0, 0, 40, 60}
+    , m_velocity(0, 0)
+    , m_state(PlayerState::Idle)
+    , m_health(3)
+    , m_maxHealth(3)
+    , m_coins(0)
+    , m_score(0)
+    , m_onGround(false)
+    , m_facingRight(true)
+    , m_crouching(false)
+    , m_invincibilityTimer(0.0f)
+    , m_currentAnim(nullptr)
+{}
 
-Player::Player() 
-    : position{0, 0}
-    , velocity{0, 0}
-    , spawnPoint{0, 0}
-    , health(3)
-    , maxHealth(3)
-    , coins(0)
-    , score(0)
-    , grounded(false)
-    , facingRight(true)
-    , dead(false)
-    , currentFrame(0)
-    , frameTimer(0)
-    , framesPerRow(8)
-    , frameWidth(32)
-    , frameHeight(32)
-    , currentState("idle")
-    , activePowerUp(PowerUpType::NONE)
-    , powerUpTimer(0)
-    , jumpsLeft(1)
-    , canDoubleJumpAbility(false)
-    , invincibilityTimer(0)
-    , invincibilityFrames(0)
-    , squashStretch(1.0f)
-    , trailIndex(0)
-{
-    for (int i = 0; i < 10; i++) {
-        trailPositions[i] = {0, 0};
+void Player::loadAnimations() {
+    auto& texMgr = TextureManager::getInstance();
+    auto& animMgr = AnimationManager::getInstance();
+    
+    // Загружаем текстуры для ходьбы (p2 - красный персонаж)
+    std::vector<int> walkTextures;
+    for (int i = 1; i <= 11; i++) {
+        char path[256];
+        snprintf(path, sizeof(path), "assets/Base pack/Player/p2_walk/PNG/p2_walk%02d.png", i);
+        int texId = texMgr.loadTexture("p2_walk" + std::to_string(i), path);
+        walkTextures.push_back(texId);
     }
     
-    // Load player texture
-    std::string path = "assets/sprites/platformer/Base pack/Player/p1_spritesheet.png";
-    Image img = {0};
+    // Анимация ходьбы
+    Animation walkAnim("walk", 12.0f);
+    for (int texId : walkTextures) {
+        walkAnim.addFrame(texId, 1.0f / 12.0f);
+    }
+    animMgr.addAnimation("walk", std::move(walkAnim));
     
-    if (FileExists(path.c_str())) {
-        img = LoadImage(path.c_str());
+    // Загружаем остальные текстуры
+    int standTex = texMgr.loadTexture("p2_stand", "assets/Base pack/Player/p2_stand.png");
+    int jumpTex = texMgr.loadTexture("p2_jump", "assets/Base pack/Player/p2_jump.png");
+    int hurtTex = texMgr.loadTexture("p2_hurt", "assets/Base pack/Player/p2_hurt.png");
+    int duckTex = texMgr.loadTexture("p2_duck", "assets/Base pack/Player/p2_duck.png");
+    int frontTex = texMgr.loadTexture("p2_front", "assets/Base pack/Player/p2_front.png");
+    
+    // Анимация стойки
+    Animation idleAnim("idle", 1.0f);
+    idleAnim.addFrame(standTex, 0.5f);
+    animMgr.addAnimation("idle", std::move(idleAnim));
+    
+    // Анимация прыжка
+    Animation jumpAnim("jump", 1.0f);
+    jumpAnim.addFrame(jumpTex, 0.1f);
+    animMgr.addAnimation("jump", std::move(jumpAnim));
+    
+    // Анимация получения урона
+    Animation hurtAnim("hurt", 5.0f);
+    hurtAnim.addFrame(hurtTex, 0.2f);
+    animMgr.addAnimation("hurt", std::move(hurtAnim));
+    
+    // Анимация приседания
+    Animation duckAnim("duck", 1.0f);
+    duckAnim.addFrame(duckTex, 0.1f);
+    animMgr.addAnimation("duck", std::move(duckAnim));
+    
+    m_currentAnim = animMgr.getAnimation("idle");
+}
+
+void Player::update(float dt) {
+    applyPhysics(dt);
+    
+    if (m_invincibilityTimer > 0) {
+        m_invincibilityTimer -= dt;
     }
     
-    // Try alternative paths
-    if (img.data == nullptr) {
-        path = "assets/sprites/platformer/Base pack/Player/p1_stand.png";
-        if (FileExists(path.c_str())) {
-            img = LoadImage(path.c_str());
+    updateAnimation();
+    
+    if (m_currentAnim) {
+        m_currentAnim->update(dt);
+    }
+    
+    // Границы мира
+    m_bounds.x = Utils::clamp(m_bounds.x, 0.0f, 10000.0f - m_bounds.width);
+}
+
+void Player::applyPhysics(float dt) {
+    // Гравитация
+    m_velocity.y += GRAVITY * dt;
+    
+    // Ограничение скорости падения
+    m_velocity.y = Utils::clamp(m_velocity.y, -1000.0f, 1000.0f);
+    
+    // Применяем скорость
+    m_bounds.x += m_velocity.x * dt;
+    m_bounds.y += m_velocity.y * dt;
+    
+    // Проверка на землю (базовая)
+    if (m_bounds.y + m_bounds.height >= 600) {
+        m_bounds.y = 600 - m_bounds.height;
+        m_velocity.y = 0;
+        m_onGround = true;
+    }
+}
+
+void Player::updateAnimation() {
+    auto& animMgr = AnimationManager::getInstance();
+    
+    if (m_state == PlayerState::Hurt) {
+        m_currentAnim = animMgr.getAnimation("hurt");
+        if (m_currentAnim->isFinished()) {
+            m_state = PlayerState::Idle;
         }
-    }
-    if (img.data != nullptr) {
-        spritesheet = LoadTextureFromImage(img);
-        UnloadImage(img);
-        
-        // Set animation frame size based on texture
-        frameWidth = spritesheet.width / 9;  // 8 frames + stand
-        frameHeight = spritesheet.height;
+    } else if (m_state == PlayerState::Dead) {
+        return;
+    } else if (!m_onGround) {
+        m_currentAnim = animMgr.getAnimation("jump");
+    } else if (m_crouching) {
+        m_currentAnim = animMgr.getAnimation("duck");
+    } else if (std::abs(m_velocity.x) > 0.1f) {
+        m_currentAnim = animMgr.getAnimation("walk");
     } else {
-        // Create placeholder texture
-        Image placeholder = GenImageColor(32, 32, RED);
-        spritesheet = LoadTextureFromImage(placeholder);
-        UnloadImage(placeholder);
+        m_currentAnim = animMgr.getAnimation("idle");
+    }
+    
+    if (m_currentAnim && !m_currentAnim->isPlaying()) {
+        m_currentAnim->play();
     }
 }
 
-Player::~Player() {
-    if (spritesheet.width != 0) {
-        UnloadTexture(spritesheet);
-    }
-}
-
-void Player::Reset(Vector2 startPosition) {
-    position = startPosition;
-    velocity = {0, 0};
-    spawnPoint = startPosition;
-    health = maxHealth;
-    coins = 0;
-    score = 0;
-    dead = false;
-    grounded = false;
-    facingRight = true;
-    activePowerUp = PowerUpType::NONE;
-    powerUpTimer = 0;
-    jumpsLeft = 1;
-    invincibilityTimer = 0;
-    invincibilityFrames = 0;
-    currentState = "idle";
-    currentFrame = 0;
-}
-
-Rectangle Player::GetBounds() const {
-    float width = frameWidth * 0.7f;
-    float height = frameHeight * 0.9f;
-    return {
-        position.x - width / 2,
-        position.y - height / 2,
-        width,
-        height
-    };
-}
-
-void Player::Update(float dt, const TileMap& tileMap) {
-    if (dead) return;
+void Player::render() {
+    if (m_state == PlayerState::Dead) return;
     
-    // Update power-up timer
-    if (activePowerUp != PowerUpType::NONE && powerUpTimer > 0) {
-        powerUpTimer -= dt;
-        if (powerUpTimer <= 0) {
-            activePowerUp = PowerUpType::NONE;
-        }
-    }
-    
-    // Update invincibility
-    if (invincibilityTimer > 0) {
-        invincibilityTimer -= dt;
-    }
-    if (invincibilityFrames > 0) {
-        invincibilityFrames--;
-    }
-    
-    HandleInput();
-    UpdatePhysics(dt);
-    CheckTileCollisions(tileMap);
-    UpdateAnimation(dt);
-    
-    // Update trail
-    trailPositions[trailIndex] = position;
-    trailIndex = (trailIndex + 1) % 10;
-    
-    // Squash and stretch recovery
-    squashStretch = Lerp(squashStretch, 1.0f, dt * 10.0f);
-}
-
-void Player::HandleInput() {
-    // Movement
-    float moveInput = 0;
-    if (IsKeyDown(KEY_A) || IsKeyDown(KEY_LEFT)) {
-        moveInput = -1;
-        facingRight = false;
-    }
-    if (IsKeyDown(KEY_D) || IsKeyDown(KEY_RIGHT)) {
-        moveInput = 1;
-        facingRight = true;
-    }
-    
-    // Apply movement
-    float speed = PLAYER_SPEED;
-    if (activePowerUp == PowerUpType::SPEED_BOOST && powerUpTimer > 0) {
-        speed *= 1.5f;
-    }
-    
-    velocity.x = moveInput * speed;
-    
-    // Jump
-    if ((IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_SPACE)) && CanJump()) {
-        Jump();
-    }
-}
-
-bool Player::CanJump() const {
-    if (grounded) return true;
-    if (activePowerUp == PowerUpType::DOUBLE_JUMP && powerUpTimer > 0 && jumpsLeft > 0) {
-        return true;
-    }
-    return false;
-}
-
-void Player::Jump() {
-    velocity.y = PLAYER_JUMP;
-    grounded = false;
-    
-    if (!IsGrounded()) {
-        jumpsLeft--;  // Use double jump
-    }
-    
-    // Squash effect
-    squashStretch = 1.3f;
-    
-    // Play sound
-    AudioManager::Instance().PlaySound(SoundType::JUMP);
-    
-    // Emit dust particles
-    // (particle system will be called from Game)
-}
-
-void Player::UpdatePhysics(float dt) {
-    // Apply gravity
-    velocity.y += GRAVITY * dt;
-    
-    // Terminal velocity
-    if (velocity.y > 1000) velocity.y = 1000;
-    
-    // Apply velocity
-    position.x += velocity.x * dt;
-    position.y += velocity.y * dt;
-}
-
-void Player::CheckTileCollisions(const TileMap& tileMap) {
-    Rectangle bounds = GetBounds();
-    
-    // Calculate tile range to check
-    int startX = static_cast<int>((bounds.x - 10) / tileMap.GetTileSize());
-    int endX = static_cast<int>((bounds.x + bounds.width + 10) / tileMap.GetTileSize());
-    int startY = static_cast<int>((bounds.y - 10) / tileMap.GetTileSize());
-    int endY = static_cast<int>((bounds.y + bounds.height + 10) / tileMap.GetTileSize());
-    
-    bool wasGrounded = grounded;
-    grounded = false;
-    
-    // Check horizontal collisions
-    for (int y = startY; y <= endY; y++) {
-        for (int x = startX; x <= endX; x++) {
-            if (tileMap.IsTileSolid(x, y)) {
-                Rectangle tileRect = tileMap.GetTileCollision(x, y);
-                if (CheckCollisionRecs(bounds, tileRect)) {
-                    // Horizontal collision
-                    if (velocity.x > 0) {
-                        position.x = tileRect.x - bounds.width / 2 - 0.1f;
-                    } else if (velocity.x < 0) {
-                        position.x = tileRect.x + tileRect.width + bounds.width / 2 + 0.1f;
-                    }
-                    velocity.x = 0;
-                }
-            }
-        }
-    }
-    
-    // Update bounds after horizontal collision
-    bounds = GetBounds();
-    startX = static_cast<int>((bounds.x - 10) / tileMap.GetTileSize());
-    endX = static_cast<int>((bounds.x + bounds.width + 10) / tileMap.GetTileSize());
-    startY = static_cast<int>((bounds.y - 10) / tileMap.GetTileSize());
-    endY = static_cast<int>((bounds.y + bounds.height + 10) / tileMap.GetTileSize());
-    
-    // Check vertical collisions
-    for (int y = startY; y <= endY; y++) {
-        for (int x = startX; x <= endX; x++) {
-            if (tileMap.IsTileSolid(x, y)) {
-                Rectangle tileRect = tileMap.GetTileCollision(x, y);
-                if (CheckCollisionRecs(bounds, tileRect)) {
-                    // Vertical collision
-                    if (velocity.y > 0) {
-                        // Landing
-                        position.y = tileRect.y - bounds.height / 2 - 0.1f;
-                        grounded = true;
-                        jumpsLeft = 1;
-                        
-                        // Landing effect
-                        if (!wasGrounded && velocity.y > 300) {
-                            squashStretch = 0.7f;
-                            // Emit land dust
-                        }
-                        
-                        velocity.y = 0;
-                    } else if (velocity.y < 0) {
-                        // Hitting ceiling
-                        position.y = tileRect.y + tileRect.height + bounds.height / 2 + 0.1f;
-                        velocity.y = 0;
-                    }
-                }
-            }
-        }
-    }
-    
-    // Check for dangerous tiles
-    for (int y = startY; y <= endY; y++) {
-        for (int x = startX; x <= endX; x++) {
-            if (tileMap.IsTileDangerous(x, y)) {
-                Rectangle tileRect = tileMap.GetTileCollision(x, y);
-                if (CheckCollisionRecs(bounds, tileRect)) {
-                    TakeDamage(1, {0, -1});
-                }
-            }
-        }
-    }
-    
-    // Check if fell off the map
-    if (position.y > tileMap.GetHeight() * tileMap.GetTileSize() + 200) {
-        Kill();
-    }
-}
-
-void Player::UpdateAnimation(float dt) {
-    // Determine animation state
-    std::string newState;
-    
-    if (!grounded) {
-        newState = "jump";
-    } else if (std::abs(velocity.x) > 10) {
-        newState = "run";
-    } else {
-        newState = "idle";
-    }
-    
-    if (invincibilityFrames > 0 && invincibilityFrames % 4 < 2) {
-        // Flash when hurt
+    // Мигание при неуязвимости
+    if (m_invincibilityTimer > 0 && static_cast<int>(m_invincibilityTimer * 20) % 2 == 0) {
         return;
     }
     
-    if (newState != currentState) {
-        currentState = newState;
-        currentFrame = 0;
-        frameTimer = 0;
+    float x = m_bounds.x;
+    float y = m_bounds.y;
+    float w = m_bounds.width;
+    float h = m_bounds.height;
+    
+    if (m_crouching) {
+        h = m_bounds.height / 2.0f;
+        y = m_bounds.y + m_bounds.height / 2.0f;
     }
     
-    // Animation speeds
-    float frameSpeed = 0.1f;
-    if (currentState == "run") frameSpeed = 0.08f;
-    if (currentState == "jump") frameSpeed = 0.15f;
+    // Отражение по горизонтали
+    glm::vec4 color = m_facingRight ? glm::vec4(1.0f) : glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f);
     
-    frameTimer += dt;
-    if (frameTimer >= frameSpeed) {
-        frameTimer -= frameSpeed;
+    if (m_currentAnim) {
+        int texId = m_currentAnim->getCurrentFrameTexture();
+        int srcX, srcY, srcW, srcH;
+        m_currentAnim->getCurrentFrameRect(srcX, srcY, srcW, srcH);
         
-        if (currentState == "idle") {
-            currentFrame = 0;  // Stand frame
-        } else if (currentState == "run") {
-            currentFrame = 1 + (currentFrame + 1) % 6;  // Walk cycle
-        } else if (currentState == "jump") {
-            currentFrame = 7;  // Jump frame
+        if (srcW > 0 && srcH > 0) {
+            Renderer::getInstance().drawSpriteRect(texId, x, y, w, h, srcX, srcY, srcW, srcH, 0.0f, color);
+        } else {
+            Renderer::getInstance().drawSprite(texId, x, y, w, h, 0.0f, color);
         }
     }
 }
 
-void Player::Draw(const GameCamera2D& camera) {
-    if (dead) return;
-    
-    // Blink when invincible
-    if (invincibilityFrames > 0 && invincibilityFrames % 3 < 2) {
-        return;
+void Player::moveLeft() {
+    if (m_state == PlayerState::Dead || m_state == PlayerState::Hurt) return;
+    m_velocity.x = -PLAYER_SPEED;
+    m_facingRight = false;
+    if (m_state == PlayerState::Idle) m_state = PlayerState::Running;
+}
+
+void Player::moveRight() {
+    if (m_state == PlayerState::Dead || m_state == PlayerState::Hurt) return;
+    m_velocity.x = PLAYER_SPEED;
+    m_facingRight = true;
+    if (m_state == PlayerState::Idle) m_state = PlayerState::Running;
+}
+
+void Player::stopHorizontal() {
+    m_velocity.x = 0;
+    if (m_state == PlayerState::Running) m_state = PlayerState::Idle;
+}
+
+void Player::jump() {
+    if (m_state == PlayerState::Dead || m_state == PlayerState::Hurt) return;
+    if (m_onGround) {
+        m_velocity.y = -PLAYER_JUMP_FORCE;
+        m_onGround = false;
+        m_state = PlayerState::Jumping;
+        AudioManager::getInstance().playSound("jump");
     }
+}
+
+void Player::setCrouching(bool crouching) {
+    if (m_state == PlayerState::Dead || m_state == PlayerState::Hurt) return;
+    m_crouching = crouching && m_onGround;
+}
+
+void Player::takeDamage(int amount) {
+    if (m_invincibilityTimer > 0 || m_state == PlayerState::Dead) return;
     
-    // Draw trail effect when speed boosted
-    if (activePowerUp == PowerUpType::SPEED_BOOST && powerUpTimer > 0) {
-        for (int i = 0; i < 5; i++) {
-            int idx = (trailIndex - i - 1 + 10) % 10;
-            Color trailColor = TintAlpha(WHITE, 0.3f - i * 0.05f);
-            DrawTexturePro(
-                spritesheet,
-                GetSpriteSource(spritesheet, frameWidth, frameHeight, currentFrame),
-                {
-                    trailPositions[idx].x - frameWidth * 0.35f * squashStretch,
-                    trailPositions[idx].y - frameHeight * 0.45f * squashStretch,
-                    frameWidth * 0.7f * squashStretch,
-                    frameHeight * 0.9f * squashStretch
-                },
-                {frameWidth * 0.35f, frameHeight * 0.45f},
-                facingRight ? 0 : 180,
-                trailColor
-            );
+    m_health -= amount;
+    AudioManager::getInstance().playSound("hit");
+    
+    if (m_health <= 0) {
+        kill();
+    } else {
+        m_state = PlayerState::Hurt;
+        m_invincibilityTimer = 2.0f;
+        auto anim = AnimationManager::getInstance().getAnimation("hurt");
+        if (anim) anim->reset();
+    }
+}
+
+void Player::heal(int amount) {
+    m_health = std::min(m_health + amount, m_maxHealth);
+}
+
+void Player::kill() {
+    m_state = PlayerState::Dead;
+    m_velocity.y = -PLAYER_JUMP_FORCE / 2.0f;
+}
+
+void Player::respawn(const glm::vec2& position) {
+    m_bounds.x = position.x;
+    m_bounds.y = position.y;
+    m_velocity = glm::vec2(0, 0);
+    m_health = m_maxHealth;
+    m_state = PlayerState::Idle;
+    m_invincibilityTimer = 0.0f;
+    m_crouching = false;
+}
+
+void Player::setPosition(float x, float y) {
+    m_bounds.x = x;
+    m_bounds.y = y;
+}
+
+void Player::setVelocity(float vx, float vy) {
+    m_velocity.x = vx;
+    m_velocity.y = vy;
+}
+
+void Player::addCoins(int amount) {
+    m_coins += amount;
+    m_score += amount * 100;
+}
+
+void Player::addScore(int amount) {
+    m_score += amount;
+}
+
+void Player::resolveCollision(const AABB& other, bool isPlatform) {
+    // Простая AABB коллизия
+    if (!m_bounds.intersects(other)) return;
+    
+    // Вычисляем перекрытия
+    float overlapLeft = (m_bounds.x + m_bounds.width) - other.x;
+    float overlapRight = (other.x + other.width) - m_bounds.x;
+    float overlapTop = (m_bounds.y + m_bounds.height) - other.y;
+    float overlapBottom = (other.y + other.height) - m_bounds.y;
+    
+    // Находим минимальное перекрытие
+    float minOverlap = std::min({overlapLeft, overlapRight, overlapTop, overlapBottom});
+    
+    if (isPlatform) {
+        // Платформы - только сверху
+        if (m_velocity.y > 0 && overlapTop < overlapBottom && 
+            m_bounds.y + m_bounds.height - m_velocity.y * 0.016f <= other.y) {
+            m_bounds.y = other.y - m_bounds.height;
+            m_velocity.y = 0;
+            m_onGround = true;
+            if (m_state == PlayerState::Falling) m_state = PlayerState::Idle;
+        }
+    } else {
+        // Твердые блоки
+        if (minOverlap == overlapTop) {
+            m_bounds.y = other.y - m_bounds.height;
+            m_velocity.y = 0;
+            m_onGround = true;
+            if (m_state == PlayerState::Falling) m_state = PlayerState::Idle;
+        } else if (minOverlap == overlapBottom) {
+            m_bounds.y = other.y + other.height;
+            m_velocity.y = 0;
+        } else if (minOverlap == overlapLeft) {
+            m_bounds.x = other.x - m_bounds.width;
+            m_velocity.x = 0;
+        } else if (minOverlap == overlapRight) {
+            m_bounds.x = other.x + other.width;
+            m_velocity.x = 0;
         }
     }
-    
-    // Draw player
-    Color tint = WHITE;
-    if (activePowerUp == PowerUpType::INVINCIBILITY && powerUpTimer > 0) {
-        tint = GOLD;
-    } else if (activePowerUp == PowerUpType::SHIELD && powerUpTimer > 0) {
-        tint = SKYBLUE;
-    }
-    
-    DrawTexturePro(
-        spritesheet,
-        GetSpriteSource(spritesheet, frameWidth, frameHeight, currentFrame),
-        {
-            position.x - frameWidth * 0.35f * squashStretch,
-            position.y - frameHeight * 0.45f * squashStretch,
-            frameWidth * 0.7f * squashStretch,
-            frameHeight * 0.9f * squashStretch
-        },
-        {frameWidth * 0.35f, frameHeight * 0.45f},
-        facingRight ? 0 : 180,
-        tint
-    );
-    
-    // Draw shield effect
-    if (activePowerUp == PowerUpType::SHIELD && powerUpTimer > 0) {
-        DrawCircleLines(position.x, position.y, 25, TintAlpha(SKYBLUE, 0.5f + sin(GetTime()) * 0.2f));
-        DrawCircleLines(position.x, position.y, 27, TintAlpha(SKYBLUE, 0.3f));
-    }
-}
-
-void Player::TakeDamage(int damage, Vector2 hitDirection) {
-    if (invincibilityTimer > 0 || dead) return;
-    if (activePowerUp == PowerUpType::SHIELD && powerUpTimer > 0) {
-        activePowerUp = PowerUpType::NONE;
-        powerUpTimer = 0;
-        invincibilityTimer = 1.0f;
-        invincibilityFrames = 60;
-        AudioManager::Instance().PlaySound(SoundType::HURT);
-        return;
-    }
-    
-    health -= damage;
-    invincibilityTimer = 1.5f;
-    invincibilityFrames = 90;
-    
-    // Knockback
-    velocity.x = hitDirection.x * 400;
-    velocity.y = hitDirection.y * 400 - 200;
-    
-    AudioManager::Instance().PlaySound(SoundType::HURT);
-    
-    if (health <= 0) {
-        Kill();
-    }
-}
-
-void Player::Kill() {
-    if (dead) return;
-    dead = true;
-    AudioManager::Instance().PlaySound(SoundType::DEATH);
-    // Death explosion particles will be emitted from Game
-}
-
-void Player::CollectPowerUp(PowerUpType type) {
-    activePowerUp = type;
-    powerUpTimer = 10.0f;  // 10 seconds
-    AudioManager::Instance().PlaySound(SoundType::POWERUP);
 }

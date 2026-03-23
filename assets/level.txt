@@ -1,0 +1,40 @@
+# Platformer Level File
+# Legend:
+#   ' ' - Air
+#   '#' - Ground (solid)
+#   '=' - Platform (one-way)
+#   'B' - Brick (solid)
+#   'X' - Block (solid)
+#   'C' - Coin
+#   'H' - Heart
+#   'P' - Player spawn
+#   'S' - Slime enemy
+#   'B' - Bat enemy (в строке уровня будет заменено на 'T')
+
+# Простой тестовый уровень
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+X                                                                            X
+X                                                                            X
+X  P                                                                         X
+X ###                                                                        X
+X       C                                                                    X
+X      ===                  C                                                X
+X                   ===           ===                                        X
+X      S       C              S       C           S                          X
+X    #####    ===    C       #####    ===    C      ===    C                 X
+X                       C                                                    X
+X              S    ===         B    ===         S    ===                    X
+X           #####          T #####          T #####                          X
+X     C                   C          C                                       X
+X    ===      C    ===    ===    C    ===    ===    C    ===                 X
+X                                                                          X
+X         H                           H                           H        X
+X       =====                       =====                       =====      X
+X                                                                          X
+X   S           C       S       C       S           C       S              X
+X #####       =====   #####   =====   #####       =====   #####            X
+X                                                                          X
+X                              C                                           X
+X                             ===                                          X
+X                                                                          X
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

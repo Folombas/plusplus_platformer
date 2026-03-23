@@ -1,0 +1,11 @@
+{
+  "name": "platformer",
+  "version": "1.0.0",
+  "dependencies": [
+    "glfw3",
+    "glew",
+    "stb",
+    "glm",
+    "openal-soft"
+  ]
+}

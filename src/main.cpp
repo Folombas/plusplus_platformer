@@ -1,26 +1,27 @@
 #include "Game.h"
-#include <cstdlib>
 #include <iostream>
 
 int main(int argc, char* argv[]) {
-    std::cout << "Starting PlusPlus Platformer..." << std::endl;
+    std::cout << "Starting Platformer..." << std::endl;
     
-    // Create and initialize game
     Game game;
-
-    std::cout << "Initializing game..." << std::endl;
-    if (!game.Initialize()) {
-        std::cout << "Initialization failed!" << std::endl;
-        return EXIT_FAILURE;
+    
+    if (!game.init()) {
+        std::cerr << "Failed to initialize game!" << std::endl;
+        return 1;
     }
-
-    std::cout << "Running game loop..." << std::endl;
-    // Run game loop
-    game.Run();
-
-    std::cout << "Shutting down..." << std::endl;
-    // Cleanup
-    game.Shutdown();
-
-    return EXIT_SUCCESS;
+    
+    std::cout << "Game initialized successfully!" << std::endl;
+    std::cout << "Controls:" << std::endl;
+    std::cout << "  A/Left - Move Left" << std::endl;
+    std::cout << "  D/Right - Move Right" << std::endl;
+    std::cout << "  Space/W/Up - Jump" << std::endl;
+    std::cout << "  S/Down - Crouch" << std::endl;
+    std::cout << "  P - Pause" << std::endl;
+    std::cout << "  R - Respawn" << std::endl;
+    std::cout << "  ESC - Quit" << std::endl;
+    
+    game.run();
+    
+    return 0;
 }

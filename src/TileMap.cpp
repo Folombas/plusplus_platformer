@@ -1,199 +1,376 @@
 #include "TileMap.h"
-#include "Camera2D.h"
+#include "Player.h"
+#include "Enemy.h"
+#include "Texture.h"
+#include "Renderer.h"
 #include <fstream>
 #include <sstream>
-#include <algorithm>
-
-#ifdef _WIN32
-#undef CloseWindow
-#undef ShowCursor
-#endif
+#include <iostream>
 
 TileMap::TileMap()
-    : width(0), height(0), tileSize(TILE_SIZE)
-    , spawnPoint{100, 100}, levelEnd{0, 0}
-    , levelName("Untitled"), levelMusic("")
-{
-    for (int i = 0; i < 4; i++) parallaxOffset[i] = 0;
+    : m_width(0)
+    , m_height(0)
+    , m_groundTexture(-1)
+    , m_platformTexture(-1)
+    , m_brickTexture(-1)
+    , m_blockTexture(-1)
+    , m_coinTexture(-1)
+    , m_heartTexture(-1)
+{}
+
+void TileMap::loadTextures() {
+    auto& texMgr = TextureManager::getInstance();
     
-    tileProperties.resize(256);
-    for (int i = 0; i < 256; i++) {
-        tileProperties[i].id = i;
-        tileProperties[i].solid = false;
-        tileProperties[i].dangerous = false;
-        tileProperties[i].oneWay = false;
-    }
-    for (int i = 1; i <= 80; i++) tileProperties[i].solid = true;
-    tileProperties[90].dangerous = true;
-    tileProperties[91].dangerous = true;
+    // Загружаем текстуры тайлов из Base pack
+    m_groundTexture = texMgr.loadTexture("ground", "assets/Base pack/Tiles/brickWall.png");
+    m_platformTexture = texMgr.loadTexture("platform", "assets/Base pack/Tiles/bridge.png");
+    m_brickTexture = texMgr.loadTexture("brick", "assets/Base pack/Tiles/box.png");
+    m_blockTexture = texMgr.loadTexture("block", "assets/Base pack/Tiles/boxEmpty.png");
     
-    const char* tilePaths[] = {
-        "assets/sprites/platformer/Base pack/Tiles/dirt.png",
-        "assets/sprites/platformer/Base pack/Tiles/grass.png",
-        "assets/sprites/platformer/Base pack/Tiles/brickWall.png"
-    };
-    for (const char* path : tilePaths) {
-        if (FileExists(path)) {
-            tileset.texture = LoadTexture(path);
-            tileset.tileWidth = tileSize;
-            tileset.tileHeight = tileSize;
-            tileset.tilesPerRow = tileset.texture.width / tileSize;
-            break;
-        }
-    }
-    if (tileset.texture.width == 0) {
-        Image img = GenImageColor(tileSize, tileSize, BROWN);
-        tileset.texture = LoadTextureFromImage(img);
-        UnloadImage(img);
-        tileset.tileWidth = tileSize;
-        tileset.tileHeight = tileSize;
-        tileset.tilesPerRow = 1;
-    }
+    // Предметы
+    m_coinTexture = texMgr.loadTexture("coin", "assets/Base pack/Items/coinBronze.png");
+    m_heartTexture = texMgr.loadTexture("heart", "assets/Base pack/Items/gemRed.png");
 }
 
-TileMap::~TileMap() {
-    if (tileset.texture.width != 0) UnloadTexture(tileset.texture);
-}
-
-void TileMap::GenerateDefaultLevel() {
-    width = 50; height = 15;
-    tiles.assign(width * height, 0);
-    levelName = "Default Level";
+bool TileMap::loadFromFile(const std::string& path) {
+    loadTextures();
     
-    for (int x = 0; x < width; x++) {
-        tiles[(height-1)*width + x] = 2;
-        tiles[(height-2)*width + x] = 2;
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Cannot open level file: " << path << std::endl;
+        return false;
     }
-    for (int x = 5; x < 15; x++) tiles[(height-5)*width + x] = 1;
-    for (int x = 20; x < 35; x++) tiles[(height-8)*width + x] = 3;
     
-    for (int i = 0; i < 10; i++) {
-        Collectible coin;
-        coin.position = {100.0f + i*80.0f, float((height-10)*tileSize)};
-        coin.type = "coin"; coin.collected = false;
-        coin.bobOffset = i * 0.5f; coin.value = 10;
-        collectibles.push_back(coin);
-    }
-    spawnPoint = {100, float((height-4)*tileSize)};
-    levelEnd = {float((width-2)*tileSize), float((height-4)*tileSize)};
-}
-
-bool TileMap::LoadFromFile(const std::string& filename) {
-    std::ifstream file(filename);
-    if (!file.is_open()) { GenerateDefaultLevel(); return true; }
+    std::string line;
+    std::vector<std::string> lines;
     
-    std::string line; int row = 0;
     while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        if (line.find("SPAWN:") == 0) { sscanf_s(line.c_str(), "SPAWN:%f,%f", &spawnPoint.x, &spawnPoint.y); continue; }
-        if (line.find("END:") == 0) { sscanf_s(line.c_str(), "END:%f,%f", &levelEnd.x, &levelEnd.y); continue; }
-        if (line.find("NAME:") == 0) { levelName = line.substr(5); continue; }
-        if (line.find("COIN:") == 0) {
-            float x, y; char type[32]; int value;
-            sscanf_s(line.c_str(), "COIN:%f,%f,%31s,%d", &x, &y, type, (unsigned)sizeof(type), &value);
-            Collectible coin; coin.position = {x, y}; coin.type = type;
-            coin.collected = false; coin.bobOffset = float(GetRandomValue(0,100))/100.0f*6.28f;
-            coin.value = value > 0 ? value : 10;
-            collectibles.push_back(coin); continue;
+        if (!line.empty() && line[0] != '#') {
+            lines.push_back(line);
         }
-        std::istringstream iss(line); int tileId, col = 0;
-        while (iss >> tileId) {
-            if (row >= height) height = row + 1;
-            if (col >= width) width = col + 1;
-            if (row*100 + col >= (int)tiles.size()) tiles.resize((row+1)*100);
-            tiles[row*100 + col] = tileId; col++;
-        }
-        row++;
     }
-    file.close();
-    if (spawnPoint.x == 100 && spawnPoint.y == 100) spawnPoint = {100, 100};
+    
+    if (lines.empty()) {
+        std::cerr << "Empty level file" << std::endl;
+        return false;
+    }
+    
+    m_height = static_cast<int>(lines.size());
+    m_width = 0;
+    
+    for (const auto& l : lines) {
+        if (static_cast<int>(l.length()) > m_width) {
+            m_width = static_cast<int>(l.length());
+        }
+    }
+    
+    m_tiles.resize(m_width * m_height);
+    
+    for (int row = 0; row < m_height; row++) {
+        for (int col = 0; col < static_cast<int>(lines[row].length()); col++) {
+            char c = lines[row][col];
+            TileType type = charToTileType(c);
+            
+            int idx = row * m_width + col;
+            m_tiles[idx] = {type, 0, isSolid(col, row), false};
+            
+            // Спавн игрока
+            if (c == 'P') {
+                m_playerSpawn = glm::vec2(col * TILE_SIZE, row * TILE_SIZE);
+            }
+            
+            // Предметы
+            if (c == 'C') {
+                Collectible coin;
+                coin.type = Collectible::Coin;
+                coin.x = col * TILE_SIZE + TILE_SIZE / 4;
+                coin.y = row * TILE_SIZE + TILE_SIZE / 4;
+                coin.width = TILE_SIZE / 2;
+                coin.height = TILE_SIZE / 2;
+                coin.collected = false;
+                coin.textureId = m_coinTexture;
+                coin.bobTimer = 0.0f;
+                m_collectibles.push_back(coin);
+            } else if (c == 'H') {
+                Collectible heart;
+                heart.type = Collectible::Heart;
+                heart.x = col * TILE_SIZE + TILE_SIZE / 4;
+                heart.y = row * TILE_SIZE + TILE_SIZE / 4;
+                heart.width = TILE_SIZE / 2;
+                heart.height = TILE_SIZE / 2;
+                heart.collected = false;
+                heart.textureId = m_heartTexture;
+                heart.bobTimer = 0.0f;
+                m_collectibles.push_back(heart);
+            }
+            
+            // Враги
+            if (c == 'S') {
+                Enemy slime(EnemyType::Slime, col * TILE_SIZE, row * TILE_SIZE);
+                slime.setPatrolRange((col - 2) * TILE_SIZE, (col + 2) * TILE_SIZE);
+                m_enemies.push_back(std::move(slime));
+            } else if (c == 'B') {
+                Enemy bat(EnemyType::Bat, col * TILE_SIZE, row * TILE_SIZE);
+                bat.setPatrolRange((col - 3) * TILE_SIZE, (col + 3) * TILE_SIZE);
+                m_enemies.push_back(std::move(bat));
+            }
+        }
+    }
+    
+    // Загружаем анимации для врагов
+    for (auto& enemy : m_enemies) {
+        enemy.loadAnimations();
+    }
+    
     return true;
 }
 
-void TileMap::Update(float dt) {
-    for (auto& coin : collectibles) if (!coin.collected) coin.bobOffset += dt * 3;
-}
-
-void TileMap::Draw(const GameCamera2D& camera, int /*renderLayer*/) {
-    Vector2 camPos = camera.GetPosition();
-    float zoom = camera.GetZoom();
-    int startCol = std::max(0, (int)((camPos.x - SCREEN_WIDTH/(2*zoom)) / tileSize) - 1);
-    int endCol = std::min(width, (int)((camPos.x + SCREEN_WIDTH/(2*zoom)) / tileSize) + 2);
-    int startRow = std::max(0, (int)((camPos.y - SCREEN_HEIGHT/(2*zoom)) / tileSize) - 1);
-    int endRow = std::min(height, (int)((camPos.y + SCREEN_HEIGHT/(2*zoom)) / tileSize) + 2);
+void TileMap::generateLevel(int width, int height) {
+    loadTextures();
     
-    for (int y = startRow; y < endRow; y++) {
-        for (int x = startCol; x < endCol; x++) {
-            int tileId = GetTile(x, y);
-            if (tileId == 0) continue;
-            float px = float(x * tileSize), py = float(y * tileSize);
-            int tRow = tileId / tileset.tilesPerRow, tCol = tileId % tileset.tilesPerRow;
-            Rectangle src = {float(tCol*tileset.tileWidth), float(tRow*tileset.tileHeight),
-                            float(tileset.tileWidth), float(tileset.tileHeight)};
-            Rectangle dst = {px, py, float(tileSize), float(tileSize)};
-            DrawTexturePro(tileset.texture, src, dst, {0,0}, 0, WHITE);
+    m_width = width;
+    m_height = height;
+    m_tiles.resize(m_width * m_height);
+    
+    // Заполняем воздухом
+    for (int i = 0; i < m_width * m_height; i++) {
+        m_tiles[i] = {TileType::Air, 0, false, false};
+    }
+    
+    // Пол
+    for (int col = 0; col < m_width; col++) {
+        int idx = (m_height - 1) * m_width + col;
+        m_tiles[idx] = {TileType::Ground, m_groundTexture, true, false};
+        
+        // Платформы
+        if (col > 2 && col < m_width - 2 && col % 4 == 0) {
+            int platformRow = m_height - 3 - (col % 8) / 4;
+            if (platformRow > 1) {
+                int pIdx = platformRow * m_width + col;
+                m_tiles[pIdx] = {TileType::Platform, m_platformTexture, true, true};
+                
+                // Монета над платформой
+                Collectible coin;
+                coin.type = Collectible::Coin;
+                coin.x = col * TILE_SIZE + TILE_SIZE / 4;
+                coin.y = platformRow * TILE_SIZE - TILE_SIZE / 2;
+                coin.width = TILE_SIZE / 2;
+                coin.height = TILE_SIZE / 2;
+                coin.collected = false;
+                coin.textureId = m_coinTexture;
+                coin.bobTimer = static_cast<float>(col);
+                m_collectibles.push_back(coin);
+            }
         }
     }
-    for (auto& coin : collectibles) {
-        if (coin.collected) continue;
-        float bobY = sinf(coin.bobOffset) * 5;
-        Color c = GOLD;
-        if (coin.type == "gem") c = MAGENTA;
-        else if (coin.type == "star") c = YELLOW;
-        DrawCircle(coin.position.x, coin.position.y + bobY, 12, c);
-        DrawCircle(coin.position.x-3, coin.position.y+bobY-3, 4, Fade(WHITE, 0.6f));
+    
+    // Стены по краям
+    for (int row = 0; row < m_height; row++) {
+        m_tiles[row * m_width] = {TileType::Block, m_blockTexture, true, false};
+        m_tiles[row * m_width + m_width - 1] = {TileType::Block, m_blockTexture, true, false};
     }
-    if (levelEnd.x > 0) {
-        DrawRectangle((int)levelEnd.x-20, (int)levelEnd.y-60, 40, 80, Fade(GREEN, 0.3f));
-        DrawRectangleLines((int)levelEnd.x-20, (int)levelEnd.y-60, 40, 80, GREEN);
-        float fw = sinf(GetTime()*5)*5;
-        Vector2 tri[3] = {{levelEnd.x, levelEnd.y-60}, {levelEnd.x+30+fw, levelEnd.y-50}, {levelEnd.x, levelEnd.y-40}};
-        DrawTriangle(tri[0], tri[1], tri[2], RED);
+    
+    // Спавн игрока
+    m_playerSpawn = glm::vec2(100.0f, 400.0f);
+    
+    // Добавляем врагов
+    Enemy slime1(EnemyType::Slime, 400, 500);
+    slime1.setPatrolRange(350, 550);
+    m_enemies.push_back(std::move(slime1));
+    
+    Enemy slime2(EnemyType::Slime, 700, 500);
+    slime2.setPatrolRange(600, 800);
+    m_enemies.push_back(std::move(slime2));
+    
+    Enemy bat(EnemyType::Bat, 500, 300);
+    bat.setPatrolRange(400, 700);
+    m_enemies.push_back(std::move(bat));
+    
+    // Загружаем анимации
+    for (auto& enemy : m_enemies) {
+        enemy.loadAnimations();
     }
 }
 
-void TileMap::DrawBackground(const GameCamera2D& camera, const std::vector<Texture2D>& layers) {
-    Vector2 camPos = camera.GetPosition();
-    for (size_t i = 0; i < layers.size() && i < 4; i++) {
-        float pf = 0.2f + i*0.2f, ox = camPos.x * pf;
-        float tw = float(layers[i].width); ox = fmodf(ox, tw);
-        DrawTexture(layers[i], (int)(-ox), 0, WHITE);
-        DrawTexture(layers[i], (int)(tw - ox), 0, WHITE);
+Tile TileMap::getTile(int col, int row) const {
+    if (col < 0 || col >= m_width || row < 0 || row >= m_height) {
+        return {TileType::Air, 0, false, false};
+    }
+    return m_tiles[row * m_width + col];
+}
+
+void TileMap::setTile(int col, int row, TileType type) {
+    if (col < 0 || col >= m_width || row < 0 || row >= m_height) return;
+    
+    int idx = row * m_width + col;
+    m_tiles[idx].type = type;
+    m_tiles[idx].solid = isSolid(col, row);
+}
+
+bool TileMap::isSolid(int col, int row) const {
+    TileType type = getTile(col, row).type;
+    return type == TileType::Ground || type == TileType::Block || 
+           type == TileType::Brick || type == TileType::Platform;
+}
+
+bool TileMap::isPlatform(int col, int row) const {
+    return getTile(col, row).type == TileType::Platform;
+}
+
+AABB TileMap::getTileBounds(int col, int row) const {
+    return {
+        col * TILE_SIZE,
+        row * TILE_SIZE,
+        TILE_SIZE,
+        TILE_SIZE
+    };
+}
+
+void TileMap::update(float dt) {
+    // Обновляем врагов
+    for (auto& enemy : m_enemies) {
+        if (enemy.isAlive()) {
+            enemy.update(dt);
+        }
+    }
+    
+    // Обновляем предметы (анимация парения)
+    for (auto& collectible : m_collectibles) {
+        if (!collectible.collected) {
+            collectible.bobTimer += dt;
+        }
     }
 }
 
-int TileMap::GetTile(int x, int y) const {
-    if (x < 0 || x >= width || y < 0 || y >= height) return 0;
-    return tiles[y * 100 + x];
+void TileMap::render() {
+    auto& renderer = Renderer::getInstance();
+    
+    // Рендерим тайлы
+    for (int row = 0; row < m_height; row++) {
+        for (int col = 0; col < m_width; col++) {
+            Tile tile = getTile(col, row);
+            if (tile.type != TileType::Air && tile.textureId >= 0) {
+                float x = col * TILE_SIZE;
+                float y = row * TILE_SIZE;
+                renderer.drawSprite(tile.textureId, x, y, TILE_SIZE, TILE_SIZE);
+            }
+        }
+    }
+    
+    // Рендерим предметы
+    for (auto& collectible : m_collectibles) {
+        if (!collectible.collected && collectible.textureId >= 0) {
+            float bobOffset = std::sin(collectible.bobTimer * 5.0f) * 5.0f;
+            renderer.drawSprite(
+                collectible.textureId,
+                collectible.x,
+                collectible.y + bobOffset,
+                collectible.width,
+                collectible.height
+            );
+        }
+    }
+    
+    // Рендерим врагов
+    for (auto& enemy : m_enemies) {
+        if (enemy.isAlive()) {
+            enemy.render();
+        }
+    }
 }
-void TileMap::SetTile(int x, int y, int id) {
-    if (x < 0 || x >= width || y < 0 || y >= height) return;
-    tiles[y * 100 + x] = id;
-}
-Rectangle TileMap::GetTileBounds(int x, int y) const {
-    return {float(x*tileSize), float(y*tileSize), float(tileSize), float(tileSize)};
-}
-bool TileMap::IsTileSolid(int x, int y) const {
-    if (x < 0 || x >= width || y < 0 || y >= height) return false;
-    int t = GetTile(x, y); return t != 0 && tileProperties[t].solid;
-}
-bool TileMap::IsTileDangerous(int x, int y) const {
-    if (x < 0 || x >= width || y < 0 || y >= height) return false;
-    return tileProperties[GetTile(x, y)].dangerous;
-}
-bool TileMap::IsTileOneWay(int x, int y) const {
-    if (x < 0 || x >= width || y < 0 || y >= height) return false;
-    return tileProperties[GetTile(x, y)].oneWay;
-}
-Rectangle TileMap::GetTileCollision(int x, int y) const { return GetTileBounds(x, y); }
 
-std::vector<Rectangle> TileMap::GetTileCollisionsAround(Vector2 worldPos, int range) const {
-    std::vector<Rectangle> r;
-    int sx = (int)((worldPos.x - range*tileSize)/tileSize);
-    int ex = (int)((worldPos.x + range*tileSize)/tileSize);
-    int sy = (int)((worldPos.y - range*tileSize)/tileSize);
-    int ey = (int)((worldPos.y + range*tileSize)/tileSize);
-    for (int y = sy; y <= ey; y++) for (int x = sx; x <= ex; x++)
-        if (IsTileSolid(x, y)) r.push_back(GetTileCollision(x, y));
-    return r;
+void TileMap::checkCollisions(Player& player) {
+    AABB playerBounds = player.getBounds();
+    
+    // Проверяем тайлы вокруг игрока
+    int startCol = static_cast<int>(playerBounds.x / TILE_SIZE) - 1;
+    int endCol = static_cast<int>((playerBounds.x + playerBounds.width) / TILE_SIZE) + 1;
+    int startRow = static_cast<int>(playerBounds.y / TILE_SIZE) - 1;
+    int endRow = static_cast<int>((playerBounds.y + playerBounds.height) / TILE_SIZE) + 1;
+    
+    for (int row = startRow; row <= endRow; row++) {
+        for (int col = startCol; col <= endCol; col++) {
+            Tile tile = getTile(col, row);
+            if (tile.solid) {
+                AABB tileBounds = getTileBounds(col, row);
+                bool isPlatform = isPlatform(col, row);
+                player.resolveCollision(tileBounds, isPlatform);
+            }
+        }
+    }
+    
+    // Проверяем врагов
+    for (auto& enemy : m_enemies) {
+        if (enemy.isAlive() && playerBounds.intersects(enemy.getBounds())) {
+            // Игрок прыгает на врага сверху
+            if (player.getVelocity().y > 0 &&
+                playerBounds.y + playerBounds.height < enemy.getBounds().y + enemy.getBounds().height / 2) {
+                enemy.takeDamage(1);
+                player.setVelocity(player.getVelocity().x, -PLAYER_JUMP_FORCE / 2);
+                player.addScore(enemy.getScoreValue());
+            } else {
+                player.takeDamage(1);
+            }
+        }
+    }
+    
+    // Удаляем мертвых врагов
+    m_enemies.erase(
+        std::remove_if(m_enemies.begin(), m_enemies.end(),
+            [](const Enemy& e) { return !e.isAlive() && /* deathTimer */ false; }),
+        m_enemies.end()
+    );
+}
+
+void TileMap::checkCollectibles(Player& player) {
+    AABB playerBounds = player.getBounds();
+    
+    for (auto& collectible : m_collectibles) {
+        if (!collectible.collected) {
+            if (playerBounds.intersects(collectible.getBounds())) {
+                collectible.collected = true;
+                
+                if (collectible.type == Collectible::Coin) {
+                    player.addCoins(1);
+                } else if (collectible.type == Collectible::Heart) {
+                    player.heal(1);
+                }
+            }
+        }
+    }
+}
+
+void TileMap::addEnemy(Enemy&& enemy) {
+    enemy.loadAnimations();
+    m_enemies.push_back(std::move(enemy));
+}
+
+void TileMap::addCollectible(const Collectible& collectible) {
+    m_collectibles.push_back(collectible);
+}
+
+char TileMap::tileTypeToChar(TileType type) const {
+    switch (type) {
+        case TileType::Air: return ' ';
+        case TileType::Ground: return '#';
+        case TileType::Platform: return '=';
+        case TileType::Brick: return 'B';
+        case TileType::Block: return 'X';
+        default: return ' ';
+    }
+}
+
+TileType TileMap::charToTileType(char c) const {
+    switch (c) {
+        case ' ': return TileType::Air;
+        case '#': return TileType::Ground;
+        case '=': return TileType::Platform;
+        case 'B': return TileType::Brick;
+        case 'X': return TileType::Block;
+        case 'C': return TileType::Air;
+        case 'H': return TileType::Air;
+        case 'P': return TileType::Air;
+        case 'S': return TileType::Air;
+        default: return TileType::Air;
+    }
 }
