@@ -50,6 +50,33 @@ target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
 # Copy assets to build directory
 file(COPY assets DESTINATION ${CMAKE_BINARY_DIR})
 
+# Copy external assets from parent directory if they exist
+set(EXTERNAL_SPRITES "${CMAKE_SOURCE_DIR}/../sprites")
+set(EXTERNAL_SOUNDS "${CMAKE_SOURCE_DIR}/../sounds")
+set(EXTERNAL_FONTS "${CMAKE_SOURCE_DIR}/../fonts")
+set(EXTERNAL_UI "${CMAKE_SOURCE_DIR}/../UI")
+
+# Copy external assets to the assets folder in build directory
+if(EXISTS ${EXTERNAL_SPRITES})
+    message(STATUS "Found external sprites, copying to assets...")
+    file(COPY ${EXTERNAL_SPRITES} DESTINATION ${CMAKE_BINARY_DIR}/assets/external_resources)
+endif()
+
+if(EXISTS ${EXTERNAL_SOUNDS})
+    message(STATUS "Found external sounds, copying to assets...")
+    file(COPY ${EXTERNAL_SOUNDS} DESTINATION ${CMAKE_BINARY_DIR}/assets/external_resources)
+endif()
+
+if(EXISTS ${EXTERNAL_FONTS})
+    message(STATUS "Found external fonts, copying to assets...")
+    file(COPY ${EXTERNAL_FONTS} DESTINATION ${CMAKE_BINARY_DIR}/assets/external_resources)
+endif()
+
+if(EXISTS ${EXTERNAL_UI})
+    message(STATUS "Found external UI assets, copying to assets...")
+    file(COPY ${EXTERNAL_UI} DESTINATION ${CMAKE_BINARY_DIR}/assets/external_resources)
+endif()
+
 # Platform-specific settings
 if(WIN32)
     target_compile_definitions(${PROJECT_NAME} PRIVATE PLATFORM_DESKTOP)

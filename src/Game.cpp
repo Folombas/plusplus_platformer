@@ -76,45 +76,121 @@ bool Game::Initialize() {
 }
 
 void Game::LoadAssets() {
-    // Load fonts
-    const char* fontPaths[] = {
+    // Load fonts - try multiple fonts for different purposes
+    const char* mainFontPaths[] = {
+        "assets/fonts/arena-font/Arena-rvwaK.ttf",
+        "assets/fonts/super-kindly-font/SuperKindly-drE8E.ttf",
+        "assets/fonts/super-shiny-font/SuperShiny-0v0rG.ttf",
+        "assets/fonts/super-adorable-font/SuperAdorable-MAvyp.ttf",
         "assets/fonts/SuperFeel-JpZqa.ttf",
+        "assets/fonts/plaza-font/Plaza.ttf",
         "resources/fonts/arial.ttf"
     };
-    
-    for (const char* path : fontPaths) {
+
+    for (const char* path : mainFontPaths) {
         if (FileExists(path)) {
             mainFont = LoadFontEx(path, 48, 0, 0);
-            if (mainFont.glyphs != nullptr) break;
+            if (mainFont.glyphs != nullptr) {
+                TraceLog(LOG_INFO, "Loaded main font: %s", path);
+                break;
+            }
         }
     }
-    
+
     if (mainFont.glyphs == nullptr) {
         mainFont = GetFontDefault();
     }
-    
-    uiFont = mainFont;
-    
-    // Load UI texture (could be used for UI elements)
-    if (FileExists("assets/sprites/platformer/Base pack/HUD/hudHeart_full.png")) {
-        uiTexture = LoadTexture("assets/sprites/platformer/Base pack/HUD/hudHeart_full.png");
-    }
-    
-    // Load parallax backgrounds
-    const char* bgPaths[] = {
-        "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-back-trees.png",
-        "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-middle-trees.png",
-        "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-lights.png",
-        "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-front-trees.png"
+
+    // Load title font (larger, more decorative)
+    const char* titleFontPaths[] = {
+        "assets/fonts/70s-disco-font/70s Disco.ttf",
+        "assets/fonts/arena-font/Arena-rvwaK.ttf",
+        "assets/fonts/super-shiny-font/SuperShiny-0v0rG.ttf"
     };
-    
-    for (const char* path : bgPaths) {
+
+    for (const char* path : titleFontPaths) {
         if (FileExists(path)) {
-            Texture2D tex = LoadTexture(path);
-            if (tex.id != 0) {
-                parallaxLayers.push_back(tex);
+            titleFont = LoadFontEx(path, 72, 0, 0);
+            if (titleFont.glyphs != nullptr) {
+                TraceLog(LOG_INFO, "Loaded title font: %s", path);
+                break;
             }
         }
+    }
+
+    if (titleFont.glyphs == nullptr) {
+        titleFont = mainFont;
+    }
+
+    uiFont = mainFont;
+
+    // Load UI textures from new UI packs
+    const char* uiTexturePaths[] = {
+        "assets/ui/kenney_ui-pack-pixel-adventure/PNG/Default/Border/panel-border-001.png",
+        "assets/ui/kenney_ui-pack-adventure/PNG/Default/Border/panel-border-001.png",
+        "assets/ui/kenney_ui-pack/PNG/Default/Border/panel-border-001.png",
+        "assets/sprites/platformer/Base pack/HUD/hud_heartFull.png",
+        "assets/sprites/platformer/Base pack/HUD/hudHeart_full.png"
+    };
+
+    for (const char* path : uiTexturePaths) {
+        if (FileExists(path)) {
+            uiTexture = LoadTexture(path);
+            if (uiTexture.id != 0) {
+                TraceLog(LOG_INFO, "Loaded UI texture: %s", path);
+                break;
+            }
+        }
+    }
+
+    // Load additional UI elements (buttons, panels)
+    const char* panelPaths[] = {
+        "assets/ui/kenney_ui-pack-pixel-adventure/PNG/Default/Panel/panel-001.png",
+        "assets/ui/kenney_fantasy-ui-borders/PNG/Default/Panel/panel-001.png"
+    };
+
+    for (const char* path : panelPaths) {
+        if (FileExists(path)) {
+            panelTexture = LoadTexture(path);
+            if (panelTexture.id != 0) {
+                TraceLog(LOG_INFO, "Loaded panel texture: %s", path);
+                break;
+            }
+        }
+    }
+
+    // Load parallax backgrounds - try multiple packs
+    const char* bgPaths[][5] = {
+        // Forest pack
+        {
+            "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-back-trees.png",
+            "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-middle-trees.png",
+            "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-lights.png",
+            "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-front-trees.png",
+            nullptr
+        },
+        // Mountain pack
+        {
+            "assets/sprites/parallax_mountain_pack/layers/parallax-mountain-back.png",
+            "assets/sprites/parallax_mountain_pack/layers/parallax-mountain-middle.png",
+            "assets/sprites/parallax_mountain_pack/layers/parallax-mountain-front.png",
+            nullptr,
+            nullptr
+        }
+    };
+
+    for (const auto& pack : bgPaths) {
+        for (const char* path : pack) {
+            if (path == nullptr) break;
+            if (FileExists(path)) {
+                Texture2D tex = LoadTexture(path);
+                if (tex.id != 0) {
+                    parallaxLayers.push_back(tex);
+                    TraceLog(LOG_INFO, "Loaded parallax layer: %s", path);
+                }
+            }
+        }
+        if (!parallaxLayers.empty()) break;
     }
 }
 
@@ -122,8 +198,14 @@ void Game::UnloadAssets() {
     if (mainFont.glyphs != nullptr) {
         UnloadFont(mainFont);
     }
+    if (titleFont.glyphs != nullptr && titleFont.id != mainFont.id) {
+        UnloadFont(titleFont);
+    }
     if (uiTexture.id != 0) {
         UnloadTexture(uiTexture);
+    }
+    if (panelTexture.id != 0) {
+        UnloadTexture(panelTexture);
     }
     for (auto& tex : parallaxLayers) {
         if (tex.id != 0) {
@@ -310,7 +392,7 @@ void Game::DrawMenu() {
     DrawGradientV(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT,
                   Color{30, 30, 60, 255},
                   Color{10, 10, 30, 255});
-    
+
     // Draw some particles
     for (int i = 0; i < 50; i++) {
         float x = (sin(time * 0.5f + i) * 0.5f + 0.5f) * SCREEN_WIDTH;
@@ -318,11 +400,23 @@ void Game::DrawMenu() {
         float size = sin(time + i) * 3 + 5;
         DrawCircle(x, y, size, TintAlpha(WHITE, 0.3f));
     }
-    
-    // Title
+
+    // Draw decorative UI panels in background
+    if (panelTexture.id != 0) {
+        DrawTexturePro(panelTexture, 
+                       {0, 0, static_cast<float>(panelTexture.width), static_cast<float>(panelTexture.height)},
+                       {100, 100, 200, 150},
+                       {0, 0}, 0, TintAlpha(WHITE, 0.1f));
+        DrawTexturePro(panelTexture,
+                       {0, 0, static_cast<float>(panelTexture.width), static_cast<float>(panelTexture.height)},
+                       {SCREEN_WIDTH - 300, SCREEN_HEIGHT - 200, 250, 180},
+                       {0, 0}, 0, TintAlpha(WHITE, 0.1f));
+    }
+
+    // Title with decorative font
     const char* title = "++ PLATFORMER";
-    int titleSize = MeasureTextEx(mainFont, title, 72, 2).x;
-    DrawTextEx(mainFont, title,
+    int titleSize = MeasureTextEx(titleFont, title, 72, 2).x;
+    DrawTextEx(titleFont, title,
                {static_cast<float>((SCREEN_WIDTH - titleSize) / 2), 100.0f},
                72.0f, 2, GOLD);
 
@@ -330,26 +424,37 @@ void Game::DrawMenu() {
     int subSize = MeasureTextEx(mainFont, subtitle, 36, 2).x;
     DrawTextEx(mainFont, subtitle,
                {static_cast<float>((SCREEN_WIDTH - subSize) / 2), 180.0f},
-               36.0f, 2, WHITE);
-    
-    // Menu options
+               36.0f, 2, SKYBLUE);
+
+    // Menu options with panel backgrounds
     const char* options[] = {"START GAME", "LEVEL SELECT", "OPTIONS", "QUIT"};
     int numOptions = 4;
-    
-    int startY = 300;
-    int spacing = 70;
-    
+
+    int startY = 280;
+    int spacing = 65;
+
     for (int i = 0; i < numOptions; i++) {
         Color color = (i == selectedMenuItem) ? GOLD : WHITE;
-        float scale = (i == selectedMenuItem) ? 1.1f : 1.0f;
-        int fontSize = static_cast<int>(32 * scale);
-        
+        float scale = (i == selectedMenuItem) ? 1.15f : 1.0f;
+        int fontSize = static_cast<int>(36 * scale);
+
         int textWidth = MeasureTextEx(mainFont, options[i], static_cast<float>(fontSize), 2).x;
+        float textX = static_cast<float>((SCREEN_WIDTH - textWidth) / 2);
+        float textY = static_cast<float>(startY + i * spacing);
+
+        // Draw panel background for selected item
+        if (i == selectedMenuItem && panelTexture.id != 0) {
+            DrawTexturePro(panelTexture,
+                           {0, 0, static_cast<float>(panelTexture.width), static_cast<float>(panelTexture.height)},
+                           {textX - 30, textY - 8, static_cast<float>(textWidth + 60), 50},
+                           {0, 0}, 0, TintAlpha(WHITE, 0.3f));
+        }
+
         DrawTextEx(mainFont, options[i],
-                   {static_cast<float>((SCREEN_WIDTH - textWidth) / 2), static_cast<float>(startY + i * spacing)},
+                   {textX, textY},
                    static_cast<float>(fontSize), 2, color);
     }
-    
+
     // Menu navigation
     if (IsKeyPressed(KEY_W) || IsKeyPressed(KEY_UP)) {
         selectedMenuItem = (selectedMenuItem - 1 + numOptions) % numOptions;
@@ -359,10 +464,10 @@ void Game::DrawMenu() {
         selectedMenuItem = (selectedMenuItem + 1) % numOptions;
         AudioManager::Instance().PlaySound(SoundType::MENU_SELECT);
     }
-    
+
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE)) {
         AudioManager::Instance().PlaySound(SoundType::MENU_BACK);
-        
+
         switch (selectedMenuItem) {
             case 0: // Start Game
                 StartTransition(levelOrder[0]);
@@ -378,9 +483,9 @@ void Game::DrawMenu() {
                 break;
         }
     }
-    
+
     // Credits
-    DrawText("Use Arrow Keys/WASD to move, Space to jump", 
+    DrawText("Use Arrow Keys/WASD to move, Space to jump",
              SCREEN_WIDTH / 2 - 200, SCREEN_HEIGHT - 80, 16, LIGHTGRAY);
     DrawText("Press ESC to pause", 
              SCREEN_WIDTH / 2 - 80, SCREEN_HEIGHT - 50, 16, LIGHTGRAY);

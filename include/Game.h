@@ -118,12 +118,14 @@ private:
     
     // Assets
     Font mainFont;
+    Font titleFont;
     Font uiFont;
     std::vector<Texture2D> parallaxLayers;
     Texture2D playerTexture;
     Texture2D enemyTextures[4];
     Texture2D tilesetTexture;
     Texture2D uiTexture;
+    Texture2D panelTexture;
     
     // Config
     GameConfig config;
