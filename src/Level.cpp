@@ -207,11 +207,11 @@ void Level::DrawBackground(const GameCamera2D& camera) {
         "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-lights.png",
         "assets/parallax/forest/parallax_forest_pack/layers/parallax-forest-front-trees.png"
     };
-    
+
     for (const char* path : layerPaths) {
         if (FileExists(path)) {
             Texture2D tex = LoadTexture(path);
-            if (tex.id != 0) {
+            if (tex.width != 0) {
                 layers.push_back(tex);
             }
         }

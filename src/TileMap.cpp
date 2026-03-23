@@ -41,7 +41,7 @@ TileMap::TileMap()
             break;
         }
     }
-    if (tileset.texture.id == 0) {
+    if (tileset.texture.width == 0) {
         Image img = GenImageColor(tileSize, tileSize, BROWN);
         tileset.texture = LoadTextureFromImage(img);
         UnloadImage(img);
@@ -52,7 +52,7 @@ TileMap::TileMap()
 }
 
 TileMap::~TileMap() {
-    if (tileset.texture.id != 0) UnloadTexture(tileset.texture);
+    if (tileset.texture.width != 0) UnloadTexture(tileset.texture);
 }
 
 void TileMap::GenerateDefaultLevel() {

@@ -136,7 +136,7 @@ void Game::LoadAssets() {
     for (const char* path : uiTexturePaths) {
         if (FileExists(path)) {
             uiTexture = LoadTexture(path);
-            if (uiTexture.id != 0) {
+            if (uiTexture.width != 0) {
                 TraceLog(LOG_INFO, "Loaded UI texture: %s", path);
                 break;
             }
@@ -152,7 +152,7 @@ void Game::LoadAssets() {
     for (const char* path : panelPaths) {
         if (FileExists(path)) {
             panelTexture = LoadTexture(path);
-            if (panelTexture.id != 0) {
+            if (panelTexture.width != 0) {
                 TraceLog(LOG_INFO, "Loaded panel texture: %s", path);
                 break;
             }
@@ -184,7 +184,7 @@ void Game::LoadAssets() {
             if (path == nullptr) break;
             if (FileExists(path)) {
                 Texture2D tex = LoadTexture(path);
-                if (tex.id != 0) {
+                if (tex.width != 0) {
                     parallaxLayers.push_back(tex);
                     TraceLog(LOG_INFO, "Loaded parallax layer: %s", path);
                 }
@@ -198,17 +198,17 @@ void Game::UnloadAssets() {
     if (mainFont.glyphs != nullptr) {
         UnloadFont(mainFont);
     }
-    if (titleFont.glyphs != nullptr && titleFont.id != mainFont.id) {
+    if (titleFont.glyphs != nullptr && titleFont.glyphCount != mainFont.glyphCount) {
         UnloadFont(titleFont);
     }
-    if (uiTexture.id != 0) {
+    if (uiTexture.width != 0) {
         UnloadTexture(uiTexture);
     }
-    if (panelTexture.id != 0) {
+    if (panelTexture.width != 0) {
         UnloadTexture(panelTexture);
     }
     for (auto& tex : parallaxLayers) {
-        if (tex.id != 0) {
+        if (tex.width != 0) {
             UnloadTexture(tex);
         }
     }
@@ -402,7 +402,7 @@ void Game::DrawMenu() {
     }
 
     // Draw decorative UI panels in background
-    if (panelTexture.id != 0) {
+    if (panelTexture.width != 0) {
         DrawTexturePro(panelTexture, 
                        {0, 0, static_cast<float>(panelTexture.width), static_cast<float>(panelTexture.height)},
                        {100, 100, 200, 150},
@@ -443,7 +443,7 @@ void Game::DrawMenu() {
         float textY = static_cast<float>(startY + i * spacing);
 
         // Draw panel background for selected item
-        if (i == selectedMenuItem && panelTexture.id != 0) {
+        if (i == selectedMenuItem && panelTexture.width != 0) {
             DrawTexturePro(panelTexture,
                            {0, 0, static_cast<float>(panelTexture.width), static_cast<float>(panelTexture.height)},
                            {textX - 30, textY - 8, static_cast<float>(textWidth + 60), 50},

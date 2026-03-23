@@ -70,7 +70,7 @@ Player::Player()
 }
 
 Player::~Player() {
-    if (spritesheet.id != 0) {
+    if (spritesheet.width != 0) {
         UnloadTexture(spritesheet);
     }
 }

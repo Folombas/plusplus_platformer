@@ -81,7 +81,7 @@ Enemy::Enemy(Vector2 pos, EnemyType enemyType)
 }
 
 Enemy::~Enemy() {
-    if (spritesheet.id != 0) {
+    if (spritesheet.width != 0) {
         UnloadTexture(spritesheet);
     }
 }
